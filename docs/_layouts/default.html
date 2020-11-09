@@ -39,6 +39,11 @@
         <p class="view">SoundCloud: <a href="{{ site.soundcloud.user_url }}">{{site.soundcloud.user_name}}</a></p>
         {% endif %}
 
+        {% if site.email %}
+        <p class="view">Email: <a href="mailto: {{ site.email }}">{{site.email}}</a></p>
+        {% endif %}
+
+
       </header>
       <section>
 
