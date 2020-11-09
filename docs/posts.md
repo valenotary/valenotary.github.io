@@ -13,7 +13,9 @@ permalink: /posts/
 
 <ul>
     {% assign sorted = site.posts | sort: 'date' | reverse %}
-    {% for item in sorted %}
-    <li>{{ item.title }}</li>
+    {% for post in sorted %}
+    <li>
+    <a href="{{ post.url }}">{{ post.title }}</a>
+    </li>
     {% endfor %}
 </ul>
