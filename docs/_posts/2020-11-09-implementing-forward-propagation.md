@@ -28,3 +28,60 @@ Why, you ask? For the same reason that I couldn't use TensorFlow/PyTorch: the ne
 It's important to note real quickly here what I'm using NEAT for in my case if you didn't take a look at my paper. I wanted to implement NEAT to be used with the OpenAI Gym library, a suite of Reinforcement Learning (RL) environments that developers can use to easily evaluate their RL algorithms. I know NEAT isn't _technically_ considered RL, but I was inspired by Seth Bling's [MarI/O](https://www.youtube.com/watch?v=qv6UVOQ0F44) video from a few years back to utilize this algorithm for simulations. NEAT networks will take the environment's observation as input (whether it be the raw pixels or some variables provided by the Gym environment itself), and it will output either a singular action or a set of actions to perform in the simulation (e.g. moving up/down, or moving both your left arm and right leg).
 
 The original NEAT paper didn't mention any specific way they implemented this, so I tried to look for _generalized_ forward propagation algorithms on the internet - but all I got were a collection of articles that all implemented the same fixed topology network from scratch. I know several others have implemented this successfully, including Seth (he even posted his source code, but I couldn't really understand what he was doing in Lua), so there must have been some forward propagation algorithm out there that worked (assuming we all represented the network in the same way). Alas, I couldn't find anything that worked for me, so I had to think really hard about how I was going to feed the input through the network to produce some sort of behavior for the agent.
+
+{% include image.html url="/assets/img/NN_fp_layered.gif" description="A small animation of how forward propagation works in typical NNs, starting with the inputs on the left and finishing with the outputs on the right. The information is fed through the system one layer at a time." %}
+
+My approach to this implementation was creating a variant of Depth First Search (DFS), a common graph traversal algorithm we all learn in our Algorithms class. The input layer can still be filled out all at once, since the observation is ready at that point. What changes now is how we evaluate the rest of the network.
+
+We first start by trying to evaluate all of the hidden nodes in the network; evaluating a node in this context means to a linear combination of the respective node values and weights that feed into the current node, and passing that scalar into a nonlinear activation function. There is no specific order we need to do them in, just that we need to be able to have a list of them to check through. For every node we check, we see if it is still unevaluated - if not, we check its neighbors for the values we need to do so. That same method is recursively applied to the neighbors themselves, and at a first pass, we trickle all the way down until we get to the inputs have already been evaluated. And then we work our way back up to the original hidden node by evaluating the hidden nodes preceding it - not only does it contribute towards the hidden node we are currently looking at, but it also means that we won't need to evaluate those nodes when there are other unevaluated nodes that depend on them. We do this until all of the hidden nodes have been evaluated, and then we do the same thing for the output nodes (except I use a softmax function instead).
+
+{% include image.html url="/assets/img/NN_fp_neat.gif" description="A small animation of how forward propagation works in my NEAT algorithm. Beyond the input layer, the information is fed through the network by first recursively evaluating all of the hidden nodes, and then doing the same with the output nodes." %}
+
+As we can see in the animation above, we still have inputs (blue nodes) on the left, outputs (red nodes) on the right, and the connections are still strictly feedforward from left to right. This time, since the hidden nodes aren't necessarily layered, they are collectively orange. Beyond the input layer, information is passed through the network by recursively evaluating first all of the hidden node, and then the output nodes by the same method. A node will check its neighbors for values, and if their neighbors also have not been evaluated yet, then those nodes will be evaluated first. The white nodes are the ones that we currently are looking at, and the green ones are its neighbors. Once a node has been evaluated, it turns grey. We do this until essentially all nodes in the network are evaluated, and from there we can get which output we want to perform by either taking the maximum output node or grabbing all of the output nodes altogether (depending on the environment).
+
+A sample of the forward propagation implementation in Python is shown in the snippet below:
+```python
+# assume this snippet is a part of a Network class
+# and that it's typically called as network.forward_propagation(observation)
+
+# node_recur is the recursive helper function to forward_propagation
+def node_recur(self, node):
+  nodeSum = 0.0
+  for n in node.neighbors:# for all nodes that connect to the current one (direction matters)
+    if (self.connection[(n, node)].isExpressed): # if connection is active
+      if (n.type == 'input' or n.isEvaluated): # either the node is an input or has already been evaluated (base case)
+        nodeSum += n.value * connection[(n, node)].weight
+      elif (not n.isEvaluated): # unevaluated (recursive case)
+        nodeSum += self.node_recur(n) * self.connection[(n, node)].weight
+
+    if (node.type == 'output'): # output node
+      return np.exp(nodeSum) # to be used to calculate softmax
+    else: # hidden node
+      return sigmoid(nodeSum) # sigmoid function
+
+def forward_propagation(self, observation):
+  self.clear_node_values()
+
+  # fill up the input layer
+  self.inputNodes[0].value = 1.0 # the bias node
+  for i in range(len(self.inputNodes)):
+    self.inputNodes[i+1].value = observation[i]
+
+  # recursively evaluate the hidden nodes
+  for h in self.hiddenNodes:
+    if (not h.isEvaluated):
+      h.value = self.nodeRecur(h)
+
+  # now do the same for the output nodes
+  softmaxSum = 0.0
+  for o in self.outputNodes:
+    o.value = self.nodeRecur(o)
+    softmaxSum += o.value
+
+  # traverse through then one more time to calculate the softmax
+  for o in self.outputNodes:
+    o.value /= softmaxSum
+
+  return self.outputNodes.index(max(self.outputNodes)) # return the output node with the highest value
+```
+Note that this is a forward propagation for a task that only requires one action at a time; if we needed to output all of the output nodes, then we'd return more than just the maximum. Furthermore, this is only for strictly feedforward networks; I tried to handle recurrent connections, but I couldn't figure out a good solution to avoid infinite recursions when trying to detect them during forward propagation. 
